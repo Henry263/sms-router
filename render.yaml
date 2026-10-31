@@ -1,0 +1,32 @@
+# Render.com blueprint. Render has no managed MongoDB, so MONGODB_URI points at
+# MongoDB Atlas (a free M0 cluster is enough to start). Secrets are entered in the
+# dashboard (sync: false) and never committed.
+services:
+  - type: web
+    name: sms-router
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: node src/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_PHONE_NUMBER
+        value: "+14084131602"
+      - key: TWILIO_MESSAGING_SERVICE_SID
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: PUBLIC_URL
+        sync: false
+      - key: ROUTER_API_KEY_CONNECTIKO
+        sync: false
+      - key: ROUTER_API_KEY_SCAN4FEEDBACK
+        sync: false
+      - key: ROUTER_API_KEY_SCAN2REVIEWS
+        sync: false
+      - key: ROUTER_API_KEY_SCANMYPRO
+        sync: false
