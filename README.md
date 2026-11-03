@@ -21,10 +21,36 @@ OTP verification and STOP/HELP/START are handled centrally here.
 | DELETE | `/unregister` | `X-Router-API-Key` | app releases a phone number |
 | POST | `/send-otp` | `X-Router-API-Key` | text a verification code |
 | POST | `/verify-otp` | `X-Router-API-Key` | verify a code collected in-app |
+| POST | `/send-sms` | `X-Router-API-Key` | an app sends a text through the shared number |
+| POST | `/status-callback` | Twilio signature | Twilio delivery-status updates |
 | GET | `/health` | none | health check |
 
 App-facing calls send `appSource` in the JSON body and that app's secret in the
 `X-Router-API-Key` header.
+
+## Sending a text from an app (`POST /send-sms`)
+Header `X-Router-API-Key: <your app's key>`, JSON body:
+```json
+{ "appSource": "connectiko", "to": "+14155550123", "body": "Your card: https://...",
+  "messageType": "contact_card", "idempotencyKey": "order-123",
+  "consent": { "given": true, "source": "web_form" } }
+```
+`messageType` is one of `contact_card | notification | reminder | marketing | other`
+(`otp` is reserved for `/send-otp`). Response: `{ ok, messageId, sid, status, duplicate }`.
+
+The router refuses, in this order:
+| Status | `error` | Meaning |
+|---|---|---|
+| 400 | `consent_required` / `invalid_*` | consent missing, or bad phone / body / type / key |
+| 403 | `opted_out` | the number replied STOP (global list, works even if never registered) |
+| 409 | `owned_by_other_app` | the number is registered to a different app |
+| 429 | `rate_limited` | per-phone or per-app daily cap reached |
+| 502 | `send_failed` | Twilio rejected it (the same `idempotencyKey` may be retried) |
+
+Rules: a number belongs to one app (first to text or register it; `/send-sms` claims it automatically so
+replies route back). The same `idempotencyKey` never sends twice. Failed sends do not count toward caps.
+Caps are rolling 24h: `SMS_MAX_PER_PHONE_PER_DAY` (3), `SMS_MAX_PER_APP_PER_DAY` (500),
+`SMS_OTP_MAX_PER_PHONE_PER_DAY` (5). Quiet hours are not enforced yet.
 
 ## The contract each app must implement (`POST /internal/sms`)
 The router calls your app with header `X-Router-API-Key: <your app's key>` and body:
@@ -46,6 +72,8 @@ Generate each app key with `openssl rand -hex 32`.
 
 ## Data (MongoDB)
 - `smsusers` — `phone` (unique), `appSource`, `sessionState`, `sessionData`, `optedOut`.
+- `smssuppressions` — global do-not-text list keyed by `phone` (STOP adds, START removes).
+- `smsmessages` — outbound log: app, to, type, Twilio `sid`, `status`, `idempotencyKey`, consent. OTP bodies are stored as `[redacted]`.
 - `otpsessions` — `phone`, `codeHash` (bcrypt), `appSource`, `attempts`, `expiresAt` (TTL; auto-expires).
 
 ## Run locally
@@ -53,6 +81,7 @@ Generate each app key with `openssl rand -hex 32`.
 cp .env.example .env     # fill in values; set SKIP_TWILIO_SIGNATURE=true for curl testing
 npm install
 npm test                 # unit tests (no DB needed)
+npm run smoke            # end-to-end against local Mongo, dry-run (no real SMS)
 npm run dev              # needs a reachable MONGODB_URI
 ```
 

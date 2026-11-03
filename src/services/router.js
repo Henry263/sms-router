@@ -1,4 +1,5 @@
 const SmsUser = require('../models/SmsUser');
+const SmsSuppression = require('../models/SmsSuppression');
 const { classify, HELP_TEXT, STOP_TEXT, START_TEXT } = require('./keywords');
 const { hasActiveOtp, verifyOtp } = require('./otpService');
 const { forwardToApp } = require('./appForwarder');
@@ -20,8 +21,21 @@ async function handleInbound({ from, body }) {
   const text = String(body || '').trim();
 
   const kw = classify(text);
-  if (kw === 'stop') { await SmsUser.updateMany({ phone }, { $set: { optedOut: true } }); return { reply: STOP_TEXT }; }
-  if (kw === 'start') { await SmsUser.updateMany({ phone }, { $set: { optedOut: false } }); return { reply: START_TEXT }; }
+  if (kw === 'stop') {
+    // Suppress the number globally, even if it was never registered to an app.
+    await SmsSuppression.updateOne(
+      { phone },
+      { $set: { phone, reason: 'stop', source: 'inbound', suppressedAt: new Date() } },
+      { upsert: true }
+    );
+    await SmsUser.updateMany({ phone }, { $set: { optedOut: true } });
+    return { reply: STOP_TEXT };
+  }
+  if (kw === 'start') {
+    await SmsSuppression.deleteOne({ phone });
+    await SmsUser.updateMany({ phone }, { $set: { optedOut: false } });
+    return { reply: START_TEXT };
+  }
   if (kw === 'help') { return { reply: HELP_TEXT }; }
 
   const codeLike = text.replace(/\s/g, '');

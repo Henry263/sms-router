@@ -14,15 +14,19 @@ function getClient() {
 /** Send an SMS, preferring the A2P Messaging Service when configured. */
 async function sendSms({ to, body }) {
   if (process.env.SMS_DRY_RUN === 'true') {
-    const msg = { to, body, sid: `DRYRUN-${Date.now()}` };
+    // Test hook: a body containing [[fail]] simulates a Twilio error (dry-run only).
+    if (String(body).includes('[[fail]]')) throw Object.assign(new Error('simulated Twilio failure'), { code: 99999 });
+    const msg = { to, body, sid: `DRYRUN-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, status: 'queued' };
     sent.push(msg);
     console.log(`[sms-router] DRY RUN → ${to}: ${body}`);
     return msg;
   }
   const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
+  const publicUrl = String(process.env.PUBLIC_URL || '').replace(/\/$/, '');
   return getClient().messages.create({
     to,
     body,
+    ...(publicUrl ? { statusCallback: `${publicUrl}/status-callback` } : {}),
     ...(messagingServiceSid ? { messagingServiceSid } : { from: process.env.TWILIO_PHONE_NUMBER })
   });
 }

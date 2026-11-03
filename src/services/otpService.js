@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const OtpSession = require('../models/OtpSession');
-const { sendSms } = require('./twilioClient');
+const SmsMessage = require('../models/SmsMessage');
+const { assertNotSuppressed, assertWithinLimits, deliver } = require('./smsSender');
 
 const TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
@@ -9,8 +10,11 @@ function generateCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-/** Create/replace the pending OTP for a phone and text the code. */
+/** Create/replace the pending OTP for a phone and text the code. Honors opt-outs and daily caps. */
 async function sendOtp(phone, appSource) {
+  await assertNotSuppressed(phone);
+  await assertWithinLimits({ appSource, phone, otp: true });
+
   const code = generateCode();
   const codeHash = await bcrypt.hash(code, 10);
   await OtpSession.findOneAndUpdate(
@@ -18,7 +22,10 @@ async function sendOtp(phone, appSource) {
     { phone, codeHash, appSource, attempts: 0, expiresAt: new Date(Date.now() + TTL_MS) },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
-  await sendSms({ to: phone, body: `Your verification code is ${code}. It expires in 10 minutes.` });
+
+  // The log row stores no code; only the text sent to Twilio contains it.
+  const msg = await SmsMessage.create({ appSource, to: phone, body: '[redacted]', messageType: 'otp', status: 'sending' });
+  await deliver(msg, { to: phone, body: `Your verification code is ${code}. It expires in 10 minutes.` });
   return { sent: true };
 }
 
