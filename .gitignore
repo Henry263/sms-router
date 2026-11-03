@@ -5,3 +5,6 @@ node_modules/
 *.log
 .DS_Store
 coverage/
+
+# Server details for deploy.sh (keep local)
+.deploy.env
