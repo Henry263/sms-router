@@ -52,6 +52,14 @@ replies route back). The same `idempotencyKey` never sends twice. Failed sends d
 Caps are rolling 24h: `SMS_MAX_PER_PHONE_PER_DAY` (3), `SMS_MAX_PER_APP_PER_DAY` (500),
 `SMS_OTP_MAX_PER_PHONE_PER_DAY` (5). Quiet hours are not enforced yet.
 
+## Using the router from an app
+- `client/smsRouterClient.js` is a dependency-free client (Node 18+) to copy into each app. It wraps
+  `/send-sms`, `/send-otp`, `/verify-otp`, `/register`, `/unregister`, retries safely with the same
+  `idempotencyKey`, and never throws (branch on `result.error`). `verifyRouterKey()` checks the router's key.
+- `examples/internal-sms-route.js` is the template for the app's `POST /internal/sms` endpoint.
+- If an app's proxy only forwards some paths to Node, mount the route under one it forwards and set
+  `INTERNAL_URL_<APP>` in the router's env (Connectiko uses `/webhooks/sms-router`).
+
 ## The contract each app must implement (`POST /internal/sms`)
 The router calls your app with header `X-Router-API-Key: <your app's key>` and body:
 ```json
